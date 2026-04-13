@@ -173,8 +173,8 @@
 <div class="badge-scroll" id="badge-row"></div>
 
 <div class="card">
-  <label>Input — paste nama player</label>
-  <textarea id="inp" placeholder="S Messi 94&#10;BL Nagi 95&#10;B Ronaldo 93&#10;NE Mbappe 96" oninput="convert()"></textarea>
+  <label>Input — paste satu baris atau banyak baris</label>
+  <textarea id="inp" placeholder="B beckham rashford S messi isak NE hazard bergkamp M BECKEN"></textarea>
   <div class="btn-row">
     <button class="btn-accent" onclick="convert()">Convert</button>
     <button class="btn-ghost" onclick="clearAll()">Clear</button>
@@ -182,7 +182,7 @@
 </div>
 
 <div class="card">
-  <label>Output — nama penuh</label>
+  <label>Output — nama penuh (satu player satu baris)</label>
   <div class="output-wrap output-empty" id="out">Hasil keluar sini...</div>
   <div class="stats" id="stats"></div>
   <div class="btn-row" style="margin-top:10px;">
@@ -199,6 +199,9 @@ const MAP = {
   'OE':'OLD EPIC','N':'NOSTALGIA','P':'PACK','M':'MANAGER'
 };
 
+// Sort keys panjang dulu (NE, OE, BL, TS sebelum N, B, E, S)
+const KEYS = Object.keys(MAP).sort((a,b) => b.length - a.length);
+
 const badgeRow = document.getElementById('badge-row');
 Object.entries(MAP).forEach(([k,v]) => {
   const b = document.createElement('span');
@@ -207,16 +210,20 @@ Object.entries(MAP).forEach(([k,v]) => {
   badgeRow.appendChild(b);
 });
 
-function convertLine(line) {
-  const t = line.trim();
-  if (!t) return { result: '', converted: null };
-  const parts = t.split(/\s+/);
-  const key = parts[0].toUpperCase();
-  if (MAP[key]) {
-    const rest = parts.slice(1).join(' ');
-    return { result: rest ? `${MAP[key]} ${rest}` : MAP[key], converted: key };
+function parseLine(line) {
+  const tokens = line.trim().split(/\s+/);
+  const results = [];
+  let currentCat = null;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i].toUpperCase();
+    if (MAP[t]) {
+      currentCat = t;
+    } else if (currentCat) {
+      results.push(`${MAP[currentCat]} ${tokens[i].toUpperCase()}`);
+    }
   }
-  return { result: t, converted: null };
+  return results;
 }
 
 function convert() {
@@ -231,22 +238,33 @@ function convert() {
     return;
   }
 
-  const lines = inp.split('\n');
-  const results = lines.map(l => convertLine(l));
-  const output = results.map(r => r.result).join('\n');
-  const converted = results.filter(r => r.converted);
-  const total = lines.filter(l => l.trim()).length;
+  const lines = inp.split('\n').filter(l => l.trim());
+  const allResults = [];
 
-  outEl.textContent = output;
+  lines.forEach(line => {
+    const parsed = parseLine(line);
+    allResults.push(...parsed);
+  });
+
+  if (allResults.length === 0) {
+    outEl.textContent = 'Tiada player ditemui. Pastikan guna shorthand betul.';
+    outEl.className = 'output-wrap output-empty';
+    statsEl.innerHTML = '';
+    return;
+  }
+
+  outEl.textContent = allResults.join('\n');
   outEl.className = 'output-wrap has-content';
 
-  let html = `<span class="stat-text">${converted.length}/${total} ditukar</span>`;
-  const seen = {};
-  converted.forEach(r => {
-    if (!seen[r.converted]) {
-      seen[r.converted] = true;
-      html += `<span class="pill">${r.converted} → ${MAP[r.converted]}</span>`;
-    }
+  const catCount = {};
+  allResults.forEach(r => {
+    const cat = r.split(' ').slice(0, r.startsWith('NEW') || r.startsWith('OLD') ? 2 : 1).join(' ');
+    catCount[cat] = (catCount[cat] || 0) + 1;
+  });
+
+  let html = `<span class="stat-text">${allResults.length} player ditukar</span>`;
+  Object.entries(catCount).forEach(([cat, count]) => {
+    html += `<span class="pill">${cat} ×${count}</span>`;
   });
   statsEl.innerHTML = html;
 }
@@ -263,7 +281,10 @@ function copyResult() {
 
 function clearAll() {
   document.getElementById('inp').value = '';
-  convert();
+  const outEl = document.getElementById('out');
+  outEl.textContent = 'Hasil keluar sini...';
+  outEl.className = 'output-wrap output-empty';
+  document.getElementById('stats').innerHTML = '';
 }
 
 if ('serviceWorker' in navigator) {
