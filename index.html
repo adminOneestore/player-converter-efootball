@@ -37,13 +37,11 @@
   .output-wrap { margin-top: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; min-height: 80px; font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--text); transition: border-color 0.15s; }
   .output-wrap.has-content { border-color: var(--accent-dim); }
   .output-empty { color: #555; font-style: italic; font-size: 13px; }
-  .loading { color: var(--muted); font-size: 13px; font-style: italic; }
   .stats { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .stat-text { font-size: 12px; color: var(--muted); }
   .pill { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; background: #1a2e18; color: var(--accent); border: 1px solid var(--accent-dim); }
   .copy-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #0f0f0f; font-size: 13px; font-weight: 700; padding: 10px 20px; border-radius: 20px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 99; }
   .copy-toast.show { opacity: 1; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -60,9 +58,9 @@
 
 <div class="card">
   <label>Input — paste satu baris atau banyak baris</label>
-  <textarea id="inp" placeholder="B beckham rashford S messi isak NE hazard bergkamp M BECKEN&#10;&#10;Atau paste terus format lengkap dengan email, rm, silog — AI akan extract player je"></textarea>
+  <textarea id="inp" placeholder="B beckham rashford S messi isak NE hazard bergkamp M BECKEN&#10;&#10;Boleh paste terus format penuh — email, rm, silog semua akan diabaikan"></textarea>
   <div class="btn-row">
-    <button class="btn-accent" id="convertBtn" onclick="convert()">Convert</button>
+    <button class="btn-accent" onclick="convert()">Convert</button>
     <button class="btn-ghost" onclick="clearAll()">Clear</button>
   </div>
 </div>
@@ -80,43 +78,20 @@
 
 <script>
 const MAP = {
-  'S':'SHWTIME','B':'BIGTIME','BL':'BLUELOCK',
-  'TS':'TSUBASA','NE':'NEW EPIC','E':'EPIC',
-  'OE':'OLD EPIC','N':'NOSTALGIA','P':'PACK','M':'MANAGER'
+  'NE': 'NEW EPIC',
+  'OE': 'OLD EPIC',
+  'BL': 'BLUELOCK',
+  'TS': 'TSUBASA',
+  'S': 'SHWTIME',
+  'B': 'BIGTIME',
+  'E': 'EPIC',
+  'N': 'NOSTALGIA',
+  'P': 'PACK',
+  'M': 'MANAGER'
 };
 
-const SYSTEM_PROMPT = `Tugas kau hanya satu: tukar senarai nama player yang ada singkatan kategori kepada senarai penuh kategori.
-Jangan buat ayat lain. Jangan tambah info lain. Jangan ubah susunan. Hanya output list sahaja, tiada preamble, tiada explanation.
-
-Kategori:
-S = SHWTIME
-NE = NEW EPIC
-E = EPIC
-B = BIGTIME
-M = MANAGER
-N = NOSTALGIA
-OE = OLD EPIC
-BL = BLUELOCK
-TS = TSUBASA
-P = PACK
-
-Format Wajib:
-KATEGORI_PENUH + SPACE + NAMA_PLAYER (uppercase)
-
-Contoh:
-Input: S messi neves NE hazard E becken M AMORIM
-Output:
-SHWTIME MESSI
-SHWTIME NEVES
-NEW EPIC HAZARD
-EPIC BECKEN
-MANAGER AMORIM
-
-Penting:
-- Ignore semua benda lain dalam input (email, nombor telefon, rm, silog, nama buyer dll)
-- Hanya extract nama player dengan kategori je
-- Output satu player satu baris
-- Semua uppercase`;
+// Semua shorthand keys — 2 huruf dulu, baru 1 huruf
+const SHORTHAND = ['NE','OE','BL','TS','S','B','E','N','P','M'];
 
 const badgeRow = document.getElementById('badge-row');
 Object.entries(MAP).forEach(([k,v]) => {
@@ -126,66 +101,93 @@ Object.entries(MAP).forEach(([k,v]) => {
   badgeRow.appendChild(b);
 });
 
-async function convert() {
-  const inp = document.getElementById('inp').value.trim();
+function processInput(raw) {
+  const results = [];
+
+  // Process tiap baris berasingan
+  const lines = raw.split('\n');
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    // Step 1: buang semua noise
+    let clean = line
+      .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ') // email
+      .replace(/https?:\/\/\S+/g, ' ')           // url
+      .replace(/rm\s*\d+/gi, ' ')                // rm40, rm 40
+      .replace(/\bsilog\s*\d*/gi, ' ')           // silog 7
+      .replace(/\bwilog\s*\d*/gi, ' ')           // wilog 5
+      .replace(/\bmahal\d+\b/gi, ' ')            // mahal12345
+      .replace(/\b\d{5,}\b/g, ' ')               // nombor panjang (telefon)
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')           // buang symbol & emoji
+      .replace(/\b\d+\b/g, ' ')                  // buang nombor pendek
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+
+    if (!clean) continue;
+
+    // Step 2: split jadi tokens
+    const tokens = clean.split(' ').filter(t => t.length > 0);
+
+    // Step 3: scan tokens — shorthand set currentCat, lain-lain jadi player
+    let currentCat = null;
+
+    for (const token of tokens) {
+      if (SHORTHAND.includes(token)) {
+        currentCat = token;
+      } else if (currentCat && token.length >= 2) {
+        // Skip kalau token tu sendiri shorthand lain
+        results.push(`${MAP[currentCat]} ${token}`);
+      }
+    }
+  }
+
+  return results;
+}
+
+function convert() {
+  const inp = document.getElementById('inp').value;
   const outEl = document.getElementById('out');
   const statsEl = document.getElementById('stats');
-  const btn = document.getElementById('convertBtn');
 
-  if (!inp) {
+  if (!inp.trim()) {
     outEl.textContent = 'Hasil keluar sini...';
     outEl.className = 'output-wrap output-empty';
     statsEl.innerHTML = '';
     return;
   }
 
-  // Loading state
-  btn.disabled = true;
-  btn.textContent = 'Converting...';
-  outEl.textContent = 'AI sedang proses...';
-  outEl.className = 'output-wrap loading';
-  statsEl.innerHTML = '';
+  const results = processInput(inp);
 
-  try {
-  const response = await fetch('/api/convert', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ text: inp })
-});
-
-const data = await response.json();
-const result = data.result;
-
-    outEl.textContent = result;
-    outEl.className = 'output-wrap has-content';
-
-    // Count players
-    const lines = result.split('\n').filter(l => l.trim());
-    const catCount = {};
-    lines.forEach(r => {
-      const parts = r.split(' ');
-      const cat = (parts[0] === 'NEW' || parts[0] === 'OLD') ? `${parts[0]} ${parts[1]}` : parts[0];
-      catCount[cat] = (catCount[cat] || 0) + 1;
-    });
-
-    let html = `<span class="stat-text">${lines.length} player ditukar</span>`;
-    Object.entries(catCount).forEach(([cat, count]) => {
-      html += `<span class="pill">${cat} ×${count}</span>`;
-    });
-    statsEl.innerHTML = html;
-
-  } catch (err) {
-    outEl.textContent = 'Error: ' + err.message;
+  if (results.length === 0) {
+    outEl.textContent = 'Tiada player ditemui. Pastikan guna shorthand betul (B, S, NE dll).';
     outEl.className = 'output-wrap output-empty';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Convert';
+    statsEl.innerHTML = '';
+    return;
   }
+
+  outEl.textContent = results.join('\n');
+  outEl.className = 'output-wrap has-content';
+
+  // Stats
+  const catCount = {};
+  results.forEach(r => {
+    const parts = r.split(' ');
+    const cat = (parts[0] === 'NEW' || parts[0] === 'OLD') ? `${parts[0]} ${parts[1]}` : parts[0];
+    catCount[cat] = (catCount[cat] || 0) + 1;
+  });
+
+  let html = `<span class="stat-text">${results.length} player ditukar</span>`;
+  Object.entries(catCount).forEach(([cat, count]) => {
+    html += `<span class="pill">${cat} ×${count}</span>`;
+  });
+  statsEl.innerHTML = html;
 }
 
 function copyResult() {
   const out = document.getElementById('out');
-  if (out.classList.contains('output-empty') || out.classList.contains('loading')) return;
+  if (out.classList.contains('output-empty')) return;
   navigator.clipboard.writeText(out.textContent).then(() => {
     const t = document.getElementById('toast');
     t.classList.add('show');
