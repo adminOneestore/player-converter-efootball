@@ -211,12 +211,23 @@ Object.entries(MAP).forEach(([k,v]) => {
 });
 
 function parseLine(line) {
-  const tokens = line.trim().split(/\s+/);
+  // Buang email, rm, silog, nombor telefon, emoji, brackets
+  let clean = line
+    .replace(/\S+@\S+/g, '')           // buang email
+    .replace(/rm\d+/gi, '')            // buang rm24, rm40 etc
+    .replace(/silog\s*\d*/gi, '')      // buang silog 7
+    .replace(/\d{7,}/g, '')            // buang nombor telefon
+    .replace(/[^\w\s]/g, '')           // buang emoji & symbols
+    .replace(/\b(mahal12345|wilog|gpnaut|safe|koin|android\S*|lutfi|adi|adit|arya|dekwan|hg|susun|jaa|aku|nak|jual|murah|rm|silog)\b/gi, '')
+    .trim();
+
+  const tokens = clean.split(/\s+/);
   const results = [];
   let currentCat = null;
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i].toUpperCase();
+    if (!t) continue;
     if (MAP[t]) {
       currentCat = t;
     } else if (currentCat) {
