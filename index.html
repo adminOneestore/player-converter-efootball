@@ -37,7 +37,6 @@
   .output-wrap { margin-top: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; min-height: 80px; font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--text); transition: border-color 0.15s; }
   .output-wrap.has-content { border-color: var(--accent-dim); }
   .output-empty { color: #555; font-style: italic; font-size: 13px; }
-  .divider { color: #3d6635; }
   .stats { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .stat-text { font-size: 12px; color: var(--muted); }
   .pill { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; background: #1a2e18; color: var(--accent); border: 1px solid var(--accent-dim); }
@@ -59,7 +58,7 @@
 
 <div class="card">
   <label>Input — paste satu baris atau banyak baris</label>
-  <textarea id="inp" placeholder="B beckham rashford S messi isak NE hazard bergkamp M BECKEN&#10;&#10;Boleh paste terus format penuh — email, rm, silog semua akan diabaikan"></textarea>
+  <textarea id="inp" placeholder="Paste terus format penuh — email, rm, silog semua akan diabaikan. Sengkang auto antara setiap akaun."></textarea>
   <div class="btn-row">
     <button class="btn-accent" onclick="convert()">Convert</button>
     <button class="btn-ghost" onclick="clearAll()">Clear</button>
@@ -78,6 +77,13 @@
 <div class="copy-toast" id="toast">Tersalin!</div>
 
 <script>
+// Unregister service worker lama
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
+  });
+}
+
 const MAP = {
   'NE': 'NEW EPIC',
   'OE': 'OLD EPIC',
@@ -93,6 +99,7 @@ const MAP = {
 
 const SHORTHAND = ['NE','OE','BL','TS','S','B','E','N','P','M'];
 const DIVIDER = '―――――――――――――――――――――――――';
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
 const badgeRow = document.getElementById('badge-row');
 Object.entries(MAP).forEach(([k,v]) => {
@@ -104,12 +111,12 @@ Object.entries(MAP).forEach(([k,v]) => {
 
 function cleanLine(line) {
   return line
-    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ')
+    .replace(EMAIL_REGEX, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(/rm\s*\d+/gi, ' ')
     .replace(/\bsilog\s*\d*/gi, ' ')
     .replace(/\bwilog\s*\d*/gi, ' ')
-    .replace(/\bmahal\d+\b/gi, ' ')
+    .replace(/\bmahal\w+/gi, ' ')
     .replace(/\b\d{5,}\b/g, ' ')
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
     .replace(/\b\d+\b/g, ' ')
@@ -143,21 +150,20 @@ function processInput(raw) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Kalau jumpa email = akaun baru
-    const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed);
-    if (hasEmail && currentGroup.length > 0) {
-      accGroups.push(currentGroup);
-      currentGroup = [];
+    // Email = penanda akaun baru
+    if (EMAIL_REGEX.test(trimmed)) {
+      if (currentGroup.length > 0) {
+        accGroups.push([...currentGroup]);
+        currentGroup = [];
+      }
     }
 
     const players = extractPlayers(trimmed);
-    if (players.length > 0) {
-      currentGroup.push(...players);
-    }
+    currentGroup.push(...players);
   }
 
   if (currentGroup.length > 0) {
-    accGroups.push(currentGroup);
+    accGroups.push([...currentGroup]);
   }
 
   const output = [];
@@ -166,7 +172,11 @@ function processInput(raw) {
     output.push(...group);
   });
 
-  return { output, totalPlayers: output.filter(l => l !== DIVIDER).length, totalAcc: accGroups.length };
+  return {
+    output,
+    totalPlayers: output.filter(l => l !== DIVIDER).length,
+    totalAcc: accGroups.length
+  };
 }
 
 function convert() {
@@ -223,10 +233,6 @@ function clearAll() {
   outEl.textContent = 'Hasil keluar sini...';
   outEl.className = 'output-wrap output-empty';
   document.getElementById('stats').innerHTML = '';
-}
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js');
 }
 </script>
 </body>
